@@ -1,0 +1,136 @@
+#!/usr/bin/env python
+
+import traceback
+import time
+import os.path
+import sys
+import mediorc
+import script_execute as se
+import Queue
+
+class ChronCore(object) :
+	def __init__(self, nick) :
+		self.nick = nick
+		self._log = list()
+		self.ihooks = set()
+		self.outq = Queue.Queue()
+	
+	def log(self, lo) :
+		self._log.append(lo)
+
+	def on_chat_recv(self, text) :
+		self.log(('in', text))
+		for ih in set(self.ihooks) :
+			self.termination_wrap(ih, ih, text)
+
+	def termination_wrap(self, ih, c, *args, **kwargs) :
+		try :
+			c(*args, **kwargs)
+			return True
+		except se.Unhook :
+			if ih in self.ihooks :
+				self.ihooks.remove(ih)
+			self.log(('terminate', None))
+			return False
+
+	def setup_execution(self, initialize_function, ihook) :
+		if self.termination_wrap(ihook, initialize_function) :
+			self.ihooks.add(ihook)
+	
+	def send(self, text) :
+		self.log(('out', text))
+		self.outq.put(text)
+
+	def sanitize(self, nick) :
+		lowchar = ''.join([c for c in nick.lower() if c in [chr(i + ord('a')) for i in range(26)]])
+		if lowchar :
+			return lowchar
+		return nick
+
+	def handle_pm(self, nick, text) :
+		words = [w for w in text.split(' ') if w]
+		who = self.sanitize(nick)
+
+		return 'lol pm'
+
+	def outq2list(self) :
+		o = list()
+		empty = False
+		while not empty :
+			try :
+				o.append(self.outq.get(timeout=0))
+			except Queue.Empty :
+				empty = True
+		return o
+
+	def handle(self, nick, text) :
+		words = [w for w in text.split(' ') if w]
+		who = self.sanitize(nick)
+		self.on_chat_recv(text)
+
+		if words :
+			if words[0] == '!exec' :
+				w = text.split(' ', 1)
+				if len(w) == 2 :
+					st = w[1]
+					if st :
+						so = se.Script(st)
+						e = so.execute(self.setup_execution, self.send)
+		
+		return self.outq2list()
+
+	def stop_hook(self) :
+		pass
+
+class ChronBot(mediorc.IRC) :
+	def __init__(self, server, nick, chan, core) :
+		self.core = core
+		mediorc.IRC.__init__(self, server, nick, chan)
+	
+	def on_join(self, c, e) :
+		self.initialize_pinger()
+
+	def on_privmsg(self, c, e) :
+		nick = e.source.split("!")[0]
+		chan = e.target
+		txt = e.arguments[0]
+		
+		rmsg = self.core.handle_pm(nick, txt)
+		if rmsg :
+			self.connection.privmsg(nick, rmsg)
+
+	def on_pubmsg(self, c, e) :
+		nick = e.source.split("!")[0]
+		chan = e.target
+		txt = e.arguments[0]
+
+		rmsg = self.core.handle(nick, txt)
+		if rmsg :
+			if isinstance(rmsg, basestring) :
+				rmsg = [rmsg]
+			for msg in rmsg :
+				self.connection.privmsg(chan, msg)
+
+
+class ChronThread(mediorc.IRCThread) :
+	def __init__(self, server, nick, chan, core) :
+		self.bot_create = lambda: ChronBot(server, nick, chan, core)
+		self.stop_hook = core.stop_hook
+		mediorc.IRCThread.__init__(self)
+
+import sys, optparse
+
+if __name__ == '__main__' :
+	parser = optparse.OptionParser()
+	parser.add_option('--workingdir', dest='workingdir', help="Directory to store state files in.")
+	
+	(opts, args) = parser.parse_args()
+	server, nick, chan = args
+
+
+	core = ChronCore(nick)
+	s = ChronThread(server, nick, chan, core)
+	try :
+		s.run()
+	except KeyboardInterrupt :
+		s.stop()
