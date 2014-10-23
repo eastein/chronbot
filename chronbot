@@ -6,15 +6,42 @@ import os.path
 import sys
 import mediorc
 import script_execute as se
+import chronlib as cl
 import Queue
+import datetime
+import random
 
 class ChronCore(object) :
-	def __init__(self, nick) :
+	def __init__(self, nick, chan) :
 		self.nick = nick
+		self.chan = chan
+		self.bot = None
 		self._log = list()
 		self.ihooks = set()
 		self.outq = Queue.Queue()
-	
+		self.last_cron = self.minute_only(datetime.datetime.now())
+		self.shutup_until = None
+		self.crons = list()
+
+	# 2 things get handled here
+	# * start cron executes
+	# * potentially send their first line(s)
+	def do_work(self) :
+		nowmin = self.minute_only(datetime.datetime.now())
+		if nowmin != self.last_cron :
+			self.last_cron = nowmin
+			crons = list(self.crons)
+			random.shuffle(crons)
+			for c in crons :
+				cl = c['cronline']
+				if cl.match(nowmin) :
+					so = cl.command
+					e = so.execute(self.setup_execution, self.send)
+
+		if self.bot is not None :
+			for msg in self.outq2list() :
+				self.bot.connection.privmsg(self.chan, msg)
+
 	def log(self, lo) :
 		self._log.append(lo)
 
@@ -39,6 +66,11 @@ class ChronCore(object) :
 	
 	def send(self, text) :
 		self.log(('out', text))
+
+		# implementation of shutting up
+		if self.shutup_until is not None and datetime.datetime.now() < self.shutup_until :
+			return
+
 		self.outq.put(text)
 
 	def sanitize(self, nick) :
@@ -63,6 +95,9 @@ class ChronCore(object) :
 				empty = True
 		return o
 
+	def minute_only(self, dt) :
+		return dt.replace(second=0, microsecond=0)
+
 	def handle(self, nick, text) :
 		words = [w for w in text.split(' ') if w]
 		who = self.sanitize(nick)
@@ -76,7 +111,25 @@ class ChronCore(object) :
 					if st :
 						so = se.Script(st)
 						e = so.execute(self.setup_execution, self.send)
-		
+			elif words[0] == '!addcron' :
+				w = w = text.split(' ', 6)
+				if len(w) == 7 :
+					try :
+						cron = {
+							'cronline' : cl.CronLine(*(w[1:6]), command=se.Script(w[6])),
+							'who' : who
+						}
+						self.crons.append(cron)
+						self.send('added cron %s' % str(cron['cronline']))
+					except Exception, e :
+						# this sucks, yup
+						self.send(str(e))
+				else :
+					self.send('say what?')
+			# the below are just bad ways of handling the abuse problem
+			elif words[0] == '!shutup' :
+				self.shutup_until = datetime.datetime.now() + datetime.timedelta(hours=1)
+
 		return self.outq2list()
 
 	def stop_hook(self) :
@@ -85,6 +138,7 @@ class ChronCore(object) :
 class ChronBot(mediorc.IRC) :
 	def __init__(self, server, nick, chan, core) :
 		self.core = core
+		self.core.bot = self
 		mediorc.IRC.__init__(self, server, nick, chan)
 	
 	def on_join(self, c, e) :
@@ -111,6 +165,9 @@ class ChronBot(mediorc.IRC) :
 			for msg in rmsg :
 				self.connection.privmsg(chan, msg)
 
+	def do_work(self) :
+		self.core.do_work()
+
 
 class ChronThread(mediorc.IRCThread) :
 	def __init__(self, server, nick, chan, core) :
@@ -128,7 +185,7 @@ if __name__ == '__main__' :
 	server, nick, chan = args
 
 
-	core = ChronCore(nick)
+	core = ChronCore(nick, chan)
 	s = ChronThread(server, nick, chan, core)
 	try :
 		s.run()
