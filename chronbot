@@ -11,10 +11,17 @@ import Queue
 import datetime
 import random
 
+class A(object) :
+	PENDING = 0
+	YES = 1
+	NO = 2
+
 class ChronCore(object) :
-	def __init__(self, nick, chan) :
+	def __init__(self, nick, chan, persist_file, admin_password) :
 		self.nick = nick
 		self.chan = chan
+		self.persist_file = persist_file
+		self.admin_password = admin_password
 		self.bot = None
 		self._log = list()
 		self.ihooks = set()
@@ -33,6 +40,9 @@ class ChronCore(object) :
 			crons = list(self.crons)
 			random.shuffle(crons)
 			for c in crons :
+				if c['approved'] != A.YES :
+					continue
+
 				cl = c['cronline']
 				if cl.match(nowmin) :
 					so = cl.command
@@ -80,10 +90,7 @@ class ChronCore(object) :
 		return nick
 
 	def handle_pm(self, nick, text) :
-		words = [w for w in text.split(' ') if w]
-		who = self.sanitize(nick)
-
-		return 'lol pm'
+		return self.handle(nick, text, pm=True)
 
 	def outq2list(self) :
 		o = list()
@@ -98,36 +105,96 @@ class ChronCore(object) :
 	def minute_only(self, dt) :
 		return dt.replace(second=0, microsecond=0)
 
-	def handle(self, nick, text) :
+	def handle(self, nick, text, pm=False) :
 		words = [w for w in text.split(' ') if w]
 		who = self.sanitize(nick)
 		self.on_chat_recv(text)
 
 		if words :
-			if words[0] == '!exec' :
+			if not pm and (words[0] == '!exec') :
 				w = text.split(' ', 1)
 				if len(w) == 2 :
 					st = w[1]
 					if st :
 						so = se.Script(st)
 						e = so.execute(self.setup_execution, self.send)
-			elif words[0] == '!addcron' :
+			elif not pm and (words[0] == '!addcron') :
 				w = w = text.split(' ', 6)
 				if len(w) == 7 :
 					try :
 						cron = {
 							'cronline' : cl.CronLine(*(w[1:6]), command=se.Script(w[6])),
-							'who' : who
+							'who' : who,
+							'approved' : A.PENDING,
+							'added' : time.time()
 						}
 						self.crons.append(cron)
-						self.send('added cron %s' % str(cron['cronline']))
+						self.send('added to approval queue: %s' % str(cron['cronline']))
 					except Exception, e :
 						# this sucks, yup
 						self.send(str(e))
 				else :
 					self.send('say what?')
+			elif pm and (words[0] == '!queue') :
+				# TODO iterate the approval queue, dump them all out (up to 3)
+				emit = 0
+				skipped = 0
+				i = 0
+				for i in range(len(self.crons)) :
+					c = self.crons[i]
+					if c['approved'] == A.PENDING :
+						if emit >= 3 :
+							skipped += 1
+						else :
+							emit += 1
+							self.send('[%d] (by %s, %d sec ago): %s' % (i, c['who'], int(time.time() - c['added']), str(c['cronline'])))
+				if skipped > 0 :
+					self.send('and %d more' % skipped)
+				if emit == 0 :
+					self.send('nothing in the queue.')
+			elif pm and (words[0] in ['!approve', '!reject']) :
+				approve = words[0] == '!approve'
+				
+				ok = True
+				if len(words) != 3 :
+					ok = False
+					self.send('usage: !(approve|reject) cron_number password')
+				
+				if ok :
+					try :
+						cron_number = int(words[1])
+					except ValueError :
+						self.send('cron_number must be an integer')
+						ok = False
+			
+				if ok :
+					try :
+						c = self.crons[cron_number]
+					except IndexError :
+						self.send('no such cron')
+						ok = False
+
+				if ok :
+					if words[2] != self.admin_password :
+						self.send('wrong password.')
+						ok = False
+
+				if ok :
+					a = {
+						True: A.YES,
+						False: A.NO
+					}
+					a = a[approve]
+
+					if c['approved'] == a :
+						self.send('already %sed' % words[0])
+					else :
+						c['approved'] = a
+						self.send('okay.')
+
+
 			# the below are just bad ways of handling the abuse problem
-			elif words[0] == '!shutup' :
+			elif not pm and (words[0] == '!shutup') :
 				self.shutup_until = datetime.datetime.now() + datetime.timedelta(hours=1)
 
 		return self.outq2list()
@@ -151,7 +218,10 @@ class ChronBot(mediorc.IRC) :
 		
 		rmsg = self.core.handle_pm(nick, txt)
 		if rmsg :
-			self.connection.privmsg(nick, rmsg)
+			if isinstance(rmsg, basestring) :
+				rmsg = [rmsg]
+			for msg in rmsg :
+				self.connection.privmsg(nick, msg)
 
 	def on_pubmsg(self, c, e) :
 		nick = e.source.split("!")[0]
@@ -180,12 +250,15 @@ import sys, optparse
 if __name__ == '__main__' :
 	parser = optparse.OptionParser()
 	parser.add_option('--workingdir', dest='workingdir', help="Directory to store state files in.")
-	
+	parser.add_option('--admin-password', '-p', dest='admin_password', help='Admin password to use to approve crons.')
 	(opts, args) = parser.parse_args()
+	
+	persist_filename = os.path.join(opts.workingdir, 'chronbot.json')
+
 	server, nick, chan = args
 
 
-	core = ChronCore(nick, chan)
+	core = ChronCore(nick, chan, persist_filename, opts.admin_password)
 	s = ChronThread(server, nick, chan, core)
 	try :
 		s.run()
