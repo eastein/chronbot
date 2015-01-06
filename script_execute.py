@@ -62,6 +62,9 @@ class Script(object) :
 	def __str__(self) :
 		return self.code_text
 
+	def __eq__(self, o) :
+		return self.code_text == o.code_text
+
 	def execute(self, initialize_register_hook, output_hook) :
 		"""
 		@param input_register_hook is a callable that takes one parameter - another callable. Calling input_register_hook(c) should cause input events to be executed on c with c(line_of_text).

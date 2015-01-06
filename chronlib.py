@@ -1,5 +1,6 @@
 import datetime
 import re
+import script_execute
 
 class InvalidPatternException(Exception): 
 	pass
@@ -67,14 +68,16 @@ class CronPattern(object) :
 		return self.pattern == o.pattern
 
 class CronLine(object) :
-	def __init__(self, m, h, dom, mon, dow, command=None) :
+	def __init__(self, m, h, dom, mon, dow, command=None, command_object=None) :
 		self.m = CronPattern(m)
 		self.h = CronPattern(h)
 		self.dom = CronPattern(dom)
 		self.mon = CronPattern(mon)
 		self.dow = CronPattern(dow)
-		self.command = command
-
+		if command_object is not None :
+			self.command = command_object
+		if command is not None :
+			self.command = script_execute.Script(command)
 	def __eq__(self, o) :
 		return reduce(lambda a,b: a and b, [getattr(self, attr) == getattr(o, attr) for attr in ['m', 'h', 'dom', 'mon', 'dow', 'command']])
 
@@ -96,8 +99,10 @@ class CronLine(object) :
 		return cls(d['m'], d['h'], d['dom'], d['mon'], d['dow'], d['command'])
 
 	def to_dict(self) :
-		return dict([(a, str(getattr(self, a))) for a in ['m', 'h', 'dom', 'mon', 'dow', 'command']])
-
+		r = dict([(a, str(getattr(self, a))) for a in ['m', 'h', 'dom', 'mon', 'dow', 'command']])
+		r['command'] = str(r['command'])
+		return r
+	
 	def __str__(self) :
 		r = ' '.join([str(self.m),str(self.h), str(self.dom), str(self.mon), str(self.dow)])
 		if self.command is not None :

@@ -2,7 +2,8 @@
 
 import traceback
 import time
-import os.path
+import os, os.path
+import json
 import sys
 import mediorc
 import script_execute as se
@@ -29,6 +30,42 @@ class ChronCore(object) :
 		self.last_cron = self.minute_only(datetime.datetime.now())
 		self.shutup_until = None
 		self.crons = list()
+		self.read()
+	
+	def read(self) :
+		if self.persist_file is None :
+			return
+		
+		if os.path.exists(self.persist_file) :
+			crons = []
+			for r in json.load(open(self.persist_file)) :
+				r['cronline'] = cl.CronLine.from_dict(r['cronline'])
+				crons.append(r)
+			self.crons = crons
+
+	def write(self) :
+		if self.persist_file is None :
+			return
+
+		crons_output = [
+			dict(r)
+			for r in self.crons
+		]
+		for c in crons_output :
+			c['cronline'] = c['cronline'].to_dict()
+		json_str = json.dumps(c)
+
+		fn_w = self.persist_file + '.inprog'
+		fn_bak = self.persist_file + '.bak'
+
+		if os.path.exists(self.persist_file) :
+			os.rename(self.persist_file, fn_bak)
+
+		fh_w = open(fn_w, 'w')
+		json.dump(crons_output, fh_w)
+		fh_w.close()
+
+		os.rename(fn_w, self.persist_file)
 
 	# 2 things get handled here
 	# * start cron executes
@@ -56,7 +93,7 @@ class ChronCore(object) :
 		self._log.append(lo)
 
 	def on_chat_recv(self, text) :
-		self.log(('in', text))
+		#self.log(('in', text))
 		for ih in set(self.ihooks) :
 			self.termination_wrap(ih, ih, text)
 
@@ -67,7 +104,7 @@ class ChronCore(object) :
 		except se.Unhook :
 			if ih in self.ihooks :
 				self.ihooks.remove(ih)
-			self.log(('terminate', None))
+			#self.log(('terminate', None))
 			return False
 
 	def setup_execution(self, initialize_function, ihook) :
@@ -75,7 +112,7 @@ class ChronCore(object) :
 			self.ihooks.add(ihook)
 	
 	def send(self, text) :
-		self.log(('out', text))
+		#self.log(('out', text))
 
 		# implementation of shutting up
 		if self.shutup_until is not None and datetime.datetime.now() < self.shutup_until :
@@ -123,13 +160,14 @@ class ChronCore(object) :
 				if len(w) == 7 :
 					try :
 						cron = {
-							'cronline' : cl.CronLine(*(w[1:6]), command=se.Script(w[6])),
+							'cronline' : cl.CronLine(*(w[1:7])),
 							'who' : who,
 							'approved' : A.PENDING,
 							'added' : time.time()
 						}
 						self.crons.append(cron)
 						self.send('added to approval queue: %s' % str(cron['cronline']))
+						self.write()
 					except Exception, e :
 						# this sucks, yup
 						self.send(str(e))
@@ -191,6 +229,7 @@ class ChronCore(object) :
 					else :
 						c['approved'] = a
 						self.send('okay.')
+						self.write()
 
 
 			# the below are just bad ways of handling the abuse problem
