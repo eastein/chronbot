@@ -63,6 +63,9 @@ class CronPattern(object) :
 	def __str__(self) :
 		return self.pattern
 
+	def __eq__(self, o) :
+		return self.pattern == o.pattern
+
 class CronLine(object) :
 	def __init__(self, m, h, dom, mon, dow, command=None) :
 		self.m = CronPattern(m)
@@ -71,6 +74,9 @@ class CronLine(object) :
 		self.mon = CronPattern(mon)
 		self.dow = CronPattern(dow)
 		self.command = command
+
+	def __eq__(self, o) :
+		return reduce(lambda a,b: a and b, [getattr(self, attr) == getattr(o, attr) for attr in ['m', 'h', 'dom', 'mon', 'dow', 'command']])
 
 	def match(self, dt) :
 		if not self.m.check(dt.minute) :
@@ -84,6 +90,13 @@ class CronLine(object) :
 		if not self.dow.check((dt.weekday() + 1) % 7) : # TODO handle names
 			return False
 		return True
+	
+	@classmethod
+	def from_dict(cls, d) :
+		return cls(d['m'], d['h'], d['dom'], d['mon'], d['dow'], d['command'])
+
+	def to_dict(self) :
+		return dict([(a, str(getattr(self, a))) for a in ['m', 'h', 'dom', 'mon', 'dow', 'command']])
 
 	def __str__(self) :
 		r = ' '.join([str(self.m),str(self.h), str(self.dom), str(self.mon), str(self.dow)])

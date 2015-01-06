@@ -49,3 +49,33 @@ class LineTests(unittest.TestCase) :
 
 	def test_stringify(self) :
 		self.assertEquals(str(cl.CronLine("0", "0", "*", "*", "*", 'hi')), "0 0 * * * hi")
+
+	def test_equality(self) :
+		a = cl.CronLine("0", "0", "*", "*", "*", 'hi')
+		_a = cl.CronLine("0", "0", "*", "*", "*", 'hi')
+		b = cl.CronLine("0", "1", "*", "*", "*", 'hi')
+		self.assertEquals(a, _a)
+		self.assertNotEquals(a, b)
+		self.assertNotEquals(a, None)
+
+	def test_to_dict(self) :
+		a = cl.CronLine("0", "1", "2", "3", "*", 'hello world')
+		self.assertEquals({
+			'm': '0',
+			'h': '1',
+			'dom': '2',
+			'mon': '3',
+			'dow': '*',
+			'command': 'hello world'
+		}, a.to_dict())
+
+	def test_from_dict(self) :
+		a = cl.CronLine("0", "1", "2", "3", "*", 'hello world')
+		self.assertEquals(cl.CronLine.from_dict({
+			'm': '0',
+			'h': '1',
+			'dom': '2',
+			'mon': '3',
+			'dow': '*',
+			'command': 'hello world'
+		}), a)
