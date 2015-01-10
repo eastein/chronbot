@@ -145,7 +145,8 @@ class ChronCore(object) :
 	def handle(self, nick, text, pm=False) :
 		words = [w for w in text.split(' ') if w]
 		who = self.sanitize(nick)
-		self.on_chat_recv(text)
+		if not pm :
+			self.on_chat_recv(text)
 
 		if words :
 			if not pm and (words[0] == '!exec') :

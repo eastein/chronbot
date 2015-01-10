@@ -47,6 +47,12 @@ class LineTests(unittest.TestCase) :
 		self.assertFalse(l.match(datetime.datetime(2014, 10, 19, 1, 0, 0)))
 		self.assertFalse(l.match(datetime.datetime(2014, 10, 19, 0, 1, 0)))
 
+	def test_beertime(self) :
+		l = cl.CronLine("0", "17", "*", "*", "5")
+		self.assertTrue(l.match(datetime.datetime(2014, 10, 17, 17, 0, 0)))
+		self.assertFalse(l.match(datetime.datetime(2014, 10, 16, 17, 0, 0)))
+		self.assertFalse(l.match(datetime.datetime(2014, 10, 18, 17, 0, 0)))
+
 	def test_stringify(self) :
 		self.assertEquals(str(cl.CronLine("0", "0", "*", "*", "*", 'hi')), "0 0 * * * hi")
 
