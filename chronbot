@@ -11,6 +11,7 @@ import chronlib as cl
 import Queue
 import datetime
 import random
+import irc.client
 
 class A(object) :
 	PENDING = 0
@@ -87,7 +88,12 @@ class ChronCore(object) :
 
 		if self.bot is not None :
 			for msg in self.outq2list() :
-				self.bot.connection.privmsg(self.chan, msg)
+				try :
+					self.bot.connection.privmsg(self.chan, msg)
+				except irc.client.ServerNotConnectedError :
+					# Oh well. Real cron doesn't try to fire things
+					# If the server wasn't up, so... that's the same thing. Right?
+					pass
 
 	def log(self, lo) :
 		self._log.append(lo)
